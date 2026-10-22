@@ -23,20 +23,9 @@ final class Prefs {
 
     /** Remote keys we handle, with the app each opens until the user picks another. Codes read from the TCL's log. */
     static final int KEY_NETFLIX = 4062, KEY_YOUTUBE = 190, KEY_PRIME = 4099, KEY_TCL_CHANNEL = 4020;
-    /** The Netflix button on Vestel TVs and Formovie projectors: STEM_1, which the TV hands to its Netflix key receiver (dumpsys window policy). */
-    static final int KEY_STEM_NETFLIX = KeyEvent.KEYCODE_STEM_1;
-    /** KTC's (NextStar) Tabii button: BUTTON_8, which the TV hands to its hot-key receiver (its log: "keycode = 195"). */
-    static final int KEY_KTC_TABII = KeyEvent.KEYCODE_BUTTON_8;
-    /** Sony's app buttons, as SONY_KEY + scan code (read from a BRAVIA's log; the key codes are shared). */
-    static final int SONY_KEY = 100_000;
-    static final int KEY_SONY_CORE = SONY_KEY + 496, KEY_SONY_NETFLIX = SONY_KEY + 583, KEY_SONY_DISNEY = SONY_KEY + 491,
-            KEY_SONY_PRIME = SONY_KEY + 490, KEY_SONY_YOUTUBE = SONY_KEY + 485, KEY_SONY_CRUNCHYROLL = SONY_KEY + 507,
-            KEY_SONY_PLAY = SONY_KEY + 587;   // the Google Play button of older remotes: BUTTON_8 (BRAVIA 4K UR3, Android 10)
-    static final int[] KEYS = RemoteKeys.SONY
-            ? new int[] {KEY_SONY_CORE, KEY_SONY_NETFLIX, KEY_SONY_DISNEY, KEY_SONY_PRIME, KEY_SONY_YOUTUBE, KEY_SONY_CRUNCHYROLL,
-                    KEY_SONY_PLAY}
-            : RemoteKeys.STEM_NETFLIX ? new int[] {KEY_STEM_NETFLIX}
-            : RemoteKeys.KTC ? new int[] {KEY_KTC_TABII}
+    /** Vestel's Netflix button: STEM_1, which the TV hands to its Netflix key receiver (dumpsys window policy). */
+    static final int KEY_VESTEL_NETFLIX = KeyEvent.KEYCODE_STEM_1;
+    static final int[] KEYS = RemoteKeys.VESTEL ? new int[] {KEY_VESTEL_NETFLIX}
             : new int[] {KEY_NETFLIX, KEY_YOUTUBE, KEY_PRIME, KEY_TCL_CHANNEL};
 
     /** Bumped by every change: screens compare it to know when to redraw. */
@@ -48,11 +37,6 @@ final class Prefs {
         app = c.getApplicationContext();
         migrateKeys();   // before anything reads the button choices
         Ui.applyLanguage();   // the language picked on the TV, now that it can be read
-    }
-
-    /** The app's context in this process (null before App.onCreate). */
-    static Context context() {
-        return app;
     }
 
     private static SharedPreferences sp() {
@@ -71,11 +55,12 @@ final class Prefs {
 
     // MARK: - Language and units
 
-    /** "auto" or a language code as picked ("pt", "fr", "zh-CN"…); Ui.applyLanguage finds its catalogue. */
+    /** "auto", "pt", "en", "es", "de" or "ru". */
     static String language() {
         String v = app == null ? Config.LANGUAGE : sp().getString("language", Config.LANGUAGE);
-        v = v.trim();
-        return v.isEmpty() || v.equalsIgnoreCase("auto") ? "auto" : v;
+        v = v.trim().toLowerCase(Locale.ROOT);
+        return v.startsWith("ru") ? "ru" : v.startsWith("pt") ? "pt" : v.startsWith("es") ? "es" : v.startsWith("de") ? "de"
+                : v.startsWith("en") ? "en" : "auto";
     }
 
     static void setLanguage(String v) { put("language", v); Ui.applyLanguage(); }
@@ -90,7 +75,7 @@ final class Prefs {
 
     /** "auto" (dark from sunset to sunrise), "light" or "dark". */
     static String theme() {
-        String v = sp().getString("theme", "auto");
+        String v = sp().getString("theme", "dark");
         return v.equals("light") || v.equals("dark") ? v : "auto";
     }
 
@@ -107,17 +92,14 @@ final class Prefs {
         version++;
     }
 
-    /** The home screen's soft click when moving and opening. */
-    static boolean sounds() { return sp().getBoolean("sounds", true); }
-    static void setSounds(boolean on) { put("sounds", on); }
-
     // MARK: - Widgets and coins
 
-    static boolean weather() { return sp().getBoolean("weather", true); }
+    static boolean weather() { return sp().getBoolean("weather", false); }
     static void setWeather(boolean on) { put("weather", on); }
 
-    static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
-    static void setQuotes(boolean on) { put("quotes", on); }
+    // A new setting so an old, disabled crypto widget does not hide USD/RUB.
+    static boolean quotes() { return sp().getBoolean("usd_rub_quotes", true); }
+    static void setQuotes(boolean on) { put("usd_rub_quotes", on); }
 
     static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
     static void setCoin(int i, boolean on) { put("coin" + i, on); }
@@ -143,7 +125,7 @@ final class Prefs {
 
     private static String defaultApp(int keyCode) {
         switch (keyCode) {
-            case KEY_NETFLIX: case KEY_STEM_NETFLIX: return "com.netflix.ninja";
+            case KEY_NETFLIX: case KEY_VESTEL_NETFLIX: return "com.netflix.ninja";
             case KEY_YOUTUBE: return "com.google.android.youtube.tv";
             case KEY_PRIME: return "com.amazon.amazonvideo.livingroom";
             case KEY_TCL_CHANNEL: return "";

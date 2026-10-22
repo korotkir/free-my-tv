@@ -63,7 +63,6 @@ final class HomeApps {
     static final class Item {
         int kind;
         String key, label, pkg, inputId, number;
-        String uri;         // opens this address in the app instead of the app's home (a title's page)
         String symbol;      // icon for the shortcuts and special cards
         Bitmap tile;        // 16:9 card (apps and specials)
         Bitmap logo;        // colored logo with no background (shelf); null = use the card
@@ -80,41 +79,20 @@ final class HomeApps {
      * (YouTube); empty = the art's colors as they are. Last, a visual size tweak for the logo. Edit freely.
      */
     private static final String[][] SHELF = {
-        {"netflix", "Netflix", "com.netflix.ninja", "E50914", "", "1"},
         {"youtube", "YouTube", "com.google.android.youtube.tv", "FF0033", "play", "1"},
-        {"prime", "Prime Video", "com.amazon.amazonvideo.livingroom", "1A98FF", "tint", "0.96"},
-        {"disney", "Disney+", "com.disney.disneyplus", "1838C8", "", "1"},
-        {"max", "Max", "com.wbd.stream", "6C3BE0", "", "1.32"},
-        {"max", "HBO Max", "com.hbo.hbonow", "6C3BE0", "", "1.32"},
-        {"appletv", "Apple TV", "com.apple.atve.androidtv.appletv", "B8BCC6", "", "1.1"},
-        {"appletv", "Apple TV", "com.apple.atve.sony.appletv", "B8BCC6", "", "1.1"},   // Sony's own build
-        {"hulu", "Hulu", "com.hulu.livingroomplus", "1CE783", "", "1"},
-        {"paramount", "Paramount+", "com.cbs.ott", "0064FF", "", "1"},
-        {"peacock", "Peacock", "com.peacocktv.peacockandroid", "6E55DC", "", "1"},
-        {"globoplay", "Globoplay", "com.globo.globotv", "FF5A1F", "tint", "1"},
-        {"spotify", "Spotify", "com.spotify.tv.android", "1DB954", "", "1"},
+        {"happ", "Happ", "com.happproxy", "292929", "", "1"},
+        {"zona", "Zona", "mobi.zona", "1680BC", "", "1"},
+        {"jellyfin", "Jellyfin", "org.jellyfin.androidtv", "8855CC", "", "1"},
+        {"kinopoisk", "Кинопоиск", "ru.kinopoisk.tv", "FF5500", "", "1"},
+        {"vk", "VK Видео", "com.vk.tv", "EE3344", "", "1"},
+        {"rutube", "RUTUBE", "rtb.mobile.android", "111133", "", "1"},
+        {"vlc", "VLC", "org.videolan.vlc", "FF8800", "", "1"},
     };
     static final int MAX_SHELF = 8;
     /** Live TV apps of some brands (the antenna's channels open through the standard Android request first). */
-    static final String[] LIVE_TV_APPS = {"com.tcl.tv", "com.google.android.tv", "com.mediatek.wwtv.tvcenter", "com.sony.dtv.tvx",
-            "com.smartdevice.livetv", "com.mediatek.tv.oneworld.tvcenter"};
+    static final String[] LIVE_TV_APPS = {"com.tcl.tv", "com.google.android.tv", "com.mediatek.wwtv.tvcenter", "com.sony.dtv.tvx"};
     /** Kept out of "All Apps" (only hidden, still installed). Add the ones your TV shows that you never use. */
-    private static final Set<String> HIDDEN = new HashSet<>(java.util.Arrays.asList(
-            "com.google.android.play.games",        // Google Play Games
-            "com.tcl.t_solo",                       // TCL: T-Solo
-            "com.tcl.waterfall.overseas",           // TCL Channel
-            "com.tcl.dashboard",                    // TCL Home
-            "com.tcl.ocean.instructions",           // TCL: User Guide
-            "com.tcl.guard",                        // TCL: Safety Guard
-            "com.homwee.factory",                   // Philco: factory menu
-            "com.mstar.android.tv.disclaimercustomization",   // Philco: disclaimer
-            "com.homwee.chtvmanager",               // Philco: TV Manager (cleaner)
-            "com.homwee.multiscreenshare",          // Philco: Midiacast (Chromecast still works)
-            "com.xiaomi.mitv.manualhelp",           // Xiaomi: user manual
-            "com.Smartdevice.emanual",              // Skyworth: user manual
-            "com.google.android.videos",            // Google Play Movies (discontinued)
-            "com.disney.starplus",                  // Star+ (merged into Disney+)
-            "com.tcl.exhibit"));                    // TCL: T-Exhibition
+    private static final Set<String> HIDDEN = new HashSet<>();
 
     private static final Map<String, Bitmap> TILES = new HashMap<>();   // key → ready card
     private static final Map<String, Bitmap> LOGOS = new HashMap<>();   // key → colored logo with no background
@@ -135,23 +113,83 @@ final class HomeApps {
             Item it = new Item();
             it.kind = APP;
             it.pkg = pkg;
-            if (d == null) {
-                // An app picked in Settings > Shelf that isn't in SHELF: its own name and TV art.
-                it.key = pkg;
-                it.label = ri != null ? String.valueOf(ri.loadLabel(pm)) : pkg;
-                it.tile = appTile(c, null, pkg, 0);
-            } else {
-                it.key = d[0];
-                it.label = d[1];
-                it.logo = shelfLogo(c, d[0], d[2], d[4], extract);
-                if (it.logo == null) it.tile = appTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16));
-                if (it.logo != null) it.logoInk = ink(it.logo);
-                it.logoDark = ownLogoCached(c, d[0] + "-dark");
-                it.logoScale = Float.parseFloat(d[5]);
-            }
+            it.key = d == null ? pkg : d[0];
+            it.label = d == null ? (ri != null ? String.valueOf(ri.loadLabel(pm)) : pkg) : d[1];
+            // Shelf art is rendered at high resolution on a consistent white tile. TV banners are often only
+            // 240×135 and bring their own black background, so they remain in All Apps but not on this shelf.
+            it.logo = BrandMarks.logo(c, pkg, it.label);
+            it.logoDark = it.logo;
+            it.logoInk = ink(it.logo);
             items.add(it);
         }
         return items;
+    }
+
+    /** Darken exposed white lettering; keep enclosed white details such as play triangles. */
+    private static Bitmap onWhiteLogo(String key, Bitmap source) {
+        String cacheKey = key + "-on-white";
+        synchronized (LOGOS) {
+            Bitmap cached = LOGOS.get(cacheKey);
+            if (cached != null) return cached;
+        }
+        // The extracted Kinopoisk banner contains a dark glow; use a crisp text mark on white.
+        if (key.equals("kinopoisk")) {
+            Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+            text.setColor(0xFF202124);
+            text.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD));
+            text.setTextSize(80);
+            String label = "Кинопоиск";
+            Bitmap mark = Bitmap.createBitmap((int) Math.ceil(text.measureText(label)) + 8, 110, Bitmap.Config.ARGB_8888);
+            new Canvas(mark).drawText(label, 4, 84, text);
+            synchronized (LOGOS) { LOGOS.put(cacheKey, mark); }
+            return mark;
+        }
+        if (key.equals("vlc")) {
+            Bitmap mark = Bitmap.createBitmap(source.getWidth(), source.getHeight(), Bitmap.Config.ARGB_8888);
+            Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+            ink.setColorFilter(new android.graphics.PorterDuffColorFilter(0xFF202124, android.graphics.PorterDuff.Mode.SRC_IN));
+            new Canvas(mark).drawBitmap(source, 0, 0, ink);
+            synchronized (LOGOS) { LOGOS.put(cacheKey, mark); }
+            return mark;
+        }
+        int w = source.getWidth(), h = source.getHeight(), n = w * h;
+        int[] pixels = new int[n], queue = new int[n];
+        boolean[] seen = new boolean[n];
+        source.getPixels(pixels, 0, w, 0, 0, w, h);
+        for (int seed = 0; seed < n; seed++) {
+            if (seen[seed] || !lightNeutral(pixels[seed])) continue;
+            int head = 0, tail = 1;
+            queue[0] = seed;
+            seen[seed] = true;
+            boolean exposed = false;
+            while (head < tail) {
+                int at = queue[head++], x = at % w, y = at / w;
+                if (x == 0 || y == 0 || x == w - 1 || y == h - 1) exposed = true;
+                for (int direction = 0; direction < 4; direction++) {
+                    int next = direction == 0 ? at - 1 : direction == 1 ? at + 1 : direction == 2 ? at - w : at + w;
+                    if ((direction == 0 && x == 0) || (direction == 1 && x == w - 1) || next < 0 || next >= n) continue;
+                    if ((pixels[next] >>> 24) < 48) exposed = true;
+                    if (!seen[next] && lightNeutral(pixels[next])) {
+                        seen[next] = true;
+                        queue[tail++] = next;
+                    }
+                }
+            }
+            if (exposed) for (int i = 0; i < tail; i++) {
+                int at = queue[i];
+                pixels[at] = (pixels[at] & 0xFF000000) | 0x202124;
+            }
+        }
+        Bitmap result = Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888);
+        result.setHasMipMap(true);
+        synchronized (LOGOS) { LOGOS.put(cacheKey, result); }
+        return result;
+    }
+
+    private static boolean lightNeutral(int color) {
+        int r = (color >> 16) & 255, g = (color >> 8) & 255, b = color & 255;
+        return (color >>> 24) != 0 && Math.min(r, Math.min(g, b)) >= 140
+                && Math.max(r, Math.max(g, b)) - Math.min(r, Math.min(g, b)) < 45;
     }
 
     private static String[] known(String pkg) {
@@ -176,9 +214,11 @@ final class HomeApps {
         Set<String> seen = new HashSet<>();
         for (String[] d : SHELF) if (launchIntent(pm, d[2]) != null && seen.add(d[2])) out.add(new String[] {d[2], d[1]});
         List<String[]> more = new ArrayList<>();
-        for (String[] app : launchable(c)) {
-            if (app[0].equals(c.getPackageName()) || HIDDEN.contains(app[0]) || !seen.add(app[0])) continue;
-            more.add(app);
+        Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+        for (ResolveInfo ri : pm.queryIntentActivities(query, 0)) {
+            String pkg = ri.activityInfo.packageName;
+            if (pkg.equals(c.getPackageName()) || HIDDEN.contains(pkg) || !seen.add(pkg)) continue;
+            more.add(new String[] {pkg, String.valueOf(ri.loadLabel(pm))});
         }
         Collections.sort(more, (a, b) -> a[1].toLowerCase(Locale.ROOT).compareTo(b[1].toLowerCase(Locale.ROOT)));
         out.addAll(more);
@@ -189,10 +229,10 @@ final class HomeApps {
     static List<Item> shortcuts(Context c) {
         List<Item> items = new ArrayList<>();
         if (liveTv(c) != null) {
-            items.add(shortcut(LIVE_TV, "live", Ui.tr("Live TV"), "tv"));
+            items.add(shortcut(LIVE_TV, "live", Ui.tr("TV ao Vivo", "Live TV"), "tv"));
         }
         items.addAll(inputs(c));
-        items.add(shortcut(ALL_APPS, "all", Ui.tr("All Apps"), "apps"));
+        items.add(shortcut(ALL_APPS, "all", Ui.tr("Todos os Apps", "All Apps"), "apps"));
         return items;
     }
 
@@ -212,25 +252,19 @@ final class HomeApps {
 
     /** Free My TV settings, in the corner of the home screen. */
     static Item settings() {
-        return shortcut(SETTINGS, "settings", Ui.tr("Settings"), "settings");
+        return shortcut(SETTINGS, "settings", Ui.tr("Ajustes", "Settings"), "settings");
     }
 
     /** Shortcuts in the bottom drawer. */
     static List<Item> drawerShortcuts() {
         List<Item> items = new ArrayList<>();
-        items.add(shortcut(ALL_APPS, "all", Ui.tr("All Apps"), "apps"));
-        items.add(shortcut(SETTINGS, "settings", Ui.tr("Home Settings"), "settings"));
-        items.add(shortcut(ANDROID_SETTINGS, "tv-settings", Ui.tr("TV Settings"), "tv_settings"));
+        items.add(shortcut(ALL_APPS, "all", Ui.tr("Todos os Apps", "All Apps"), "apps"));
+        items.add(shortcut(SETTINGS, "settings", Ui.tr("Ajustes do Início", "Home Settings"), "settings"));
+        items.add(shortcut(ANDROID_SETTINGS, "tv-settings", Ui.tr("Ajustes da TV", "TV Settings"), "tv_settings"));
         return items;
     }
 
     /** A streaming service's app (the "Watch" button of the featured pick). */
-    static Item app(String pkg, String label, String uri) {
-        Item it = app(pkg, label);
-        it.uri = uri;
-        return it;
-    }
-
     static Item app(String pkg, String label) {
         Item it = new Item();
         it.kind = APP;
@@ -243,7 +277,7 @@ final class HomeApps {
     /** For the bottom drawer: live TV and every HDMI input (the ones with no device are shown dimmed). */
     static List<Item> allInputs(Context c) {
         List<Item> items = new ArrayList<>();
-        if (liveTv(c) != null) items.add(shortcut(LIVE_TV, "live", Ui.tr("Live TV"), "tv"));
+        if (liveTv(c) != null) items.add(shortcut(LIVE_TV, "live", Ui.tr("TV ao Vivo", "Live TV"), "tv"));
         items.addAll(inputs(c, true));
         return items;
     }
@@ -339,16 +373,17 @@ final class HomeApps {
         skip.addAll(java.util.Arrays.asList(LIVE_TV_APPS));
         skip.add(c.getPackageName());
         skip.addAll(HIDDEN);
+        Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
         List<Item> items = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (String[] app : launchable(c)) {
-            String pkg = app[0];
+        for (ResolveInfo ri : pm.queryIntentActivities(query, 0)) {
+            String pkg = ri.activityInfo.packageName;
             if (skip.contains(pkg) || !seen.add(pkg)) continue;
             Item it = new Item();
             it.kind = APP;
             it.pkg = pkg;
             it.key = pkg;
-            it.label = app[1];
+            it.label = String.valueOf(ri.loadLabel(pm));
             it.tile = appTile(c, null, pkg, 0);
             items.add(it);
         }
@@ -368,15 +403,11 @@ final class HomeApps {
 
     /** Opens the item with the system zoom transition growing out of the card (the app starts opening right away). */
     static boolean open(Activity a, Item it, View from, int x, int y, int w, int h) {
-        Intent intent, plain = null;   // plain: the app's own home, when it won't take the title's address
+        Intent intent;
         switch (it.kind) {
             case APP:
                 intent = launchIntent(a.getPackageManager(), it.pkg);
-                plain = intent;
-                if (plain != null) plain.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-                if (intent != null && it.uri != null) {
-                    intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(it.uri)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(it.pkg);
-                }
+                if (intent != null) intent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                 break;
             case LIVE_TV:
                 intent = liveTv(a);
@@ -400,14 +431,7 @@ final class HomeApps {
             return true;
         } catch (ActivityNotFoundException | SecurityException e) {
             AppLog.w("couldn't open " + it.label + ": " + e.getMessage());
-            if (plain == null || plain == intent) return false;
-            plain.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            try {
-                a.startActivity(plain);
-                return true;
-            } catch (ActivityNotFoundException | SecurityException e2) {
-                return false;
-            }
+            return false;
         }
     }
 
@@ -417,10 +441,6 @@ final class HomeApps {
      */
     static Intent liveTv(Context c) {
         PackageManager pm = c.getPackageManager();
-        // MediaTek OneWorld TV Center (KTC/NextStar) has one input per tuner mode (antenna, cable, satellite): tuning one
-        // switches the TV to that mode and hides the other channel lists, so it opens as it is, on its own last channel.
-        Intent oneWorld = launchIntent(pm, "com.mediatek.tv.oneworld.tvcenter");
-        if (oneWorld != null) return oneWorld;
         String tuner = tunerInput(c);
         Intent mediaTek = launchIntent(pm, "com.mediatek.wwtv.tvcenter");
         if (mediaTek != null && tuner != null) {
@@ -460,24 +480,6 @@ final class HomeApps {
         } catch (RuntimeException ignored) {
         }
         return system != null ? system : fallback;
-    }
-
-    static List<String[]> launchable(Context c) {
-        PackageManager pm = c.getPackageManager();
-        List<String[]> out = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        Intent tv = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
-        for (ResolveInfo ri : pm.queryIntentActivities(tv, 0)) {
-            String pkg = ri.activityInfo.packageName;
-            if (seen.add(pkg)) out.add(new String[] {pkg, String.valueOf(ri.loadLabel(pm))});
-        }
-        Intent phone = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        for (ResolveInfo ri : pm.queryIntentActivities(phone, 0)) {
-            String pkg = ri.activityInfo.packageName;
-            if ((ri.activityInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0 || !seen.add(pkg)) continue;
-            out.add(new String[] {pkg, String.valueOf(ri.loadLabel(pm))});
-        }
-        return out;
     }
 
     static Intent launchIntent(PackageManager pm, String pkg) {
